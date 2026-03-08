@@ -8,3 +8,6 @@ class Config(BaseSettings):
     BOT_TOKEN: str
     ChatGPT_TOKEN: str
     DEBUG: bool = False
+
+
+config = Config()
