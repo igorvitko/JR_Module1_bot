@@ -1,24 +1,23 @@
-from openai import OpenAI
+import asyncio
+
+from openai import AsyncOpenAI
 import httpx
 
 
 class ChatGptService:
-    # client: OpenAI = None
-    # message_list: list = None
 
     def __init__(self, token):
-        self.client = OpenAI(
-            http_client=httpx.Client(proxy="http://18.199.183.77:49232"),
+        self.client = AsyncOpenAI(
+            http_client=httpx.AsyncClient(proxy="http://18.199.183.77:49232"),
             api_key=token)
         self.message_list = []
 
-    def send_message_list(self) -> str:
-        completion = self.client.chat.completions.create(
+    async def send_message_list(self) -> str:
+        completion = await self.client.chat.completions.create(
             # "gpt-3.5-turbo", # gpt-4o,  gpt-4-turbo,    gpt-3.5-turbo,  GPT-4o mini
-            model="gpt-5-mini",
+            model="gpt-4o-mini",
             messages=self.message_list,
             max_completion_tokens=3000
-            # temperature=0.7
         )
         message = completion.choices[0].message
         self.message_list.append(message)

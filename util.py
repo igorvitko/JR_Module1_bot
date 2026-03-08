@@ -102,7 +102,7 @@ async def send_random_fact(message, chat_gpt):
     chat_gpt.set_prompt(prompt)
 
     message = await message.edit_text("⏳ Зачекайте, я шукаю інформацію ...")
-    fact = chat_gpt.send_message_list()
+    fact = await chat_gpt.send_message_list()
     response = f"{text}\n{fact}"
 
     keyboard = [[
