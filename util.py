@@ -96,5 +96,21 @@ async def default_callback_handler(update: Update,
     await send_html(update, context, f'You have pressed button with {query} callback')
 
 
+async def send_random_fact(message, chat_gpt):
+    prompt = load_prompt('random')
+    text = load_message('random')
+    chat_gpt.set_prompt(prompt)
+
+    message = await message.edit_text("⏳ Зачекайте, я шукаю інформацію ...")
+    fact = chat_gpt.send_message_list()
+    response = f"{text}\n{fact}"
+
+    keyboard = [[
+        InlineKeyboardButton("Хочу ще факт", callback_data="random"),
+        InlineKeyboardButton("Закінчити", callback_data="start"),
+    ]]
+    await message.edit_text(response, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
 class Dialog:
     pass
