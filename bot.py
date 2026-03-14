@@ -1,61 +1,117 @@
-
 import logging
+import os
+import tempfile
+from logging.handlers import RotatingFileHandler
 
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (ApplicationBuilder, CallbackQueryHandler, CommandHandler,
-                          ContextTypes, ConversationHandler, MessageHandler,
-                          TypeHandler, filters)
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from gpt import ChatGptService
-from util import (load_message, send_text, send_image, show_main_menu, load_prompt,
-                  default_callback_handler, send_random_fact, send_text_buttons)
-
+from util import (
+    load_message,
+    send_text,
+    send_text_buttons,
+    send_image,
+    show_main_menu,
+    load_prompt,
+    send_random_fact,
+)
 from setting import config
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+# ---------------------------------------------------------------------------
+# Логування (консоль + файл з ротацією)
+# ---------------------------------------------------------------------------
+os.makedirs("logs", exist_ok=True)
+
+LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+file_handler = RotatingFileHandler(
+    filename="logs/bot.log",
+    maxBytes=5 * 1024 * 1024,
+    backupCount=3,
+    encoding="utf-8",
 )
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter(
+    LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter(
+    LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+
+logging.basicConfig(level=logging.INFO, handlers=[
+                    file_handler, console_handler])
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
-# logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-GPT_DIALOG = 1
+# ---------------------------------------------------------------------------
+# Режими (замість станів ConversationHandler)
+# Зберігаються в context.user_data["mode"]
+# ---------------------------------------------------------------------------
+MODE_GPT = "gpt"
+MODE_TALK = "talk"
+MODE_QUIZ_ANSWER = "quiz_answer"
+MODE_VOICE = "voice"
+MODE_RECOMMEND = "recommend"
 
-TALK_CHOOSE = 10
-TALK_DIALOG = 11
 
+def set_mode(context: ContextTypes.DEFAULT_TYPE, mode) -> None:
+    """Встановити поточний режим користувача."""
+    context.user_data["mode"] = mode
+    logger.info("Режим змінено на: %s", mode)
+
+
+def get_mode(context: ContextTypes.DEFAULT_TYPE):
+    """Отримати поточний режим користувача."""
+    return context.user_data.get("mode")
+
+
+# ---------------------------------------------------------------------------
+# /start
+# ---------------------------------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     logger.info("Команда /start — користувач: %s (id=%s)",
                 user.username or user.first_name, user.id)
     context.user_data.clear()
-    text = load_message('main')
-    await send_image(update, context, 'main')
-    await send_text(update, context, text)
+    await send_image(update, context, "main")
+    await send_text(update, context, load_message("main"))
     await show_main_menu(update, context, {
-        'start': 'Головне меню',
-        'random': 'Дізнатися випадковий цікавий факт 🧠',
-        'gpt': 'Задати питання чату GPT 🤖',
-        'talk': 'Поговорити з відомою особистістю 👤',
-        'quiz': 'Взяти участь у квізі ❓'
-        # Додати команду в меню можна так:
-        # 'command': 'button text'
+        "start": "Головне меню",
+        "random": "Випадковий факт 🧠",
+        "gpt": "Чат з GPT 🤖",
+        "talk": "Поговорити з особистістю 👤",
+        "quiz": "Квіз ❓",
+        "voice": "Голосовий GPT 🎙",
+        "recommend": "Рекомендації 🎬📚",
     })
-    return ConversationHandler.END
 
 
-async def random(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Команда /random — користувач: %s (id=%s)",
-                update.effective_user.username or update.effective_user.first_name,
-                update.effective_user.id)
+# ---------------------------------------------------------------------------
+# /random
+# ---------------------------------------------------------------------------
 
-    await send_image(update, context, 'random')
+async def random_fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    set_mode(context, None)
+    await send_image(update, context, "random")
     message = await update.message.reply_text("⏳")
     await send_random_fact(message, chat_gpt)
 
@@ -63,32 +119,38 @@ async def random(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler_random(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     if query.data == "random":
         await send_random_fact(query.message, chat_gpt)
     elif query.data == "start":
         await start(update, context)
 
 
+# ---------------------------------------------------------------------------
+# /gpt
+# ---------------------------------------------------------------------------
+
 async def gpt_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     logger.info("Команда /gpt — користувач: %s (id=%s)",
-                update.effective_user.username or update.effective_user.first_name, update.effective_user.id)
-    prompt = load_prompt("gpt")
-    chat_gpt.set_prompt(prompt)
+                user.username or user.first_name, user.id)
+    chat_gpt.set_prompt(load_prompt("gpt"))
+    set_mode(context, MODE_GPT)
     await send_image(update, context, "gpt")
     await send_text(update, context, load_message("gpt"))
-    return GPT_DIALOG
 
 
 async def gpt_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    logger.info("GPT-повідомлення від %s: %s",
+    logger.info("GPT-повідомлення від id=%s: %s",
                 update.effective_user.id, user_text[:80])
     await update.message.reply_text("⏳ Думаю...")
     answer = await chat_gpt.add_message(user_text)
     await send_text(update, context, answer)
-    return GPT_DIALOG
 
+
+# ---------------------------------------------------------------------------
+# /talk
+# ---------------------------------------------------------------------------
 
 PERSONALITIES = {
     "talk_cobain": "Курт Кобейн",
@@ -100,125 +162,318 @@ PERSONALITIES = {
 
 
 async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     logger.info("Команда /talk — користувач: %s (id=%s)",
-                update.effective_user.username or update.effective_user.first_name, update.effective_user.id)
+                user.username or user.first_name, user.id)
+    set_mode(context, None)
     await send_image(update, context, "talk")
     await send_text_buttons(update, context, load_message("talk"), PERSONALITIES)
-    return TALK_CHOOSE
 
 
 async def talk_choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "start":
-        await start(update, context)
-        return ConversationHandler.END
-
     if query.data not in PERSONALITIES:
-        return TALK_CHOOSE
+        return
 
     name = PERSONALITIES[query.data]
-    logger.info("Обрана особистість: %s — користувач id=%s",
-                name, query.from_user.id)
-    prompt = load_prompt(query.data)
-    chat_gpt.set_prompt(prompt)
+    logger.info("Обрана особистість: %s — id=%s", name, query.from_user.id)
+    chat_gpt.set_prompt(load_prompt(query.data))
+    set_mode(context, MODE_TALK)
 
     await query.message.reply_text(
         f"Вітаю! Тепер ти розмовляєш з *{name}*. Напиши щось!",
         parse_mode="Markdown",
     )
-    return TALK_DIALOG
 
 
 async def talk_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     await update.message.reply_text("⏳")
     answer = await chat_gpt.add_message(user_text)
-
-    keyboard = [[InlineKeyboardButton("Закінчити", callback_data="start")]]
+    keyboard = [[InlineKeyboardButton("Закінчити", callback_data="talk_end")]]
     await update.message.reply_text(
         answer, reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    return TALK_DIALOG
 
 
-async def talk_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ---------------------------------------------------------------------------
+# /quiz
+# ---------------------------------------------------------------------------
+
+QUIZ_TOPICS = {
+    "quiz_prog": "🐍 Python",
+    "quiz_math": "📐 Математика",
+    "quiz_biology": "🧬 Біологія",
+}
+
+
+async def quiz_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    logger.info("Команда /quiz — користувач: %s (id=%s)",
+                user.username or user.first_name, user.id)
+    context.user_data["quiz_score"] = 0
+    context.user_data["quiz_total"] = 0
+    set_mode(context, None)
+    await send_image(update, context, "quiz")
+    await send_text_buttons(update, context, load_message("quiz"), QUIZ_TOPICS)
+
+
+async def quiz_choose_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await start(update, context)
-    return ConversationHandler.END
+
+    if query.data == "quiz_next":
+        topic = context.user_data.get("quiz_topic")
+        prompt_keyword = "quiz_more"
+    elif query.data == "quiz_change":
+        set_mode(context, None)
+        await send_text_buttons(update, context, "Обери тему:", QUIZ_TOPICS)
+        return
+    elif query.data in QUIZ_TOPICS:
+        topic = query.data
+        context.user_data["quiz_topic"] = topic
+        prompt_keyword = topic  # "quiz_prog", "quiz_math" або "quiz_biology"
+    else:
+        return
+
+    prompt = load_prompt("quiz")
+    if prompt_keyword == "quiz_more":
+        question = await chat_gpt.add_message("quiz_more")
+    else:
+        question = await chat_gpt.send_question(prompt, prompt_keyword)
+    score = context.user_data["quiz_score"]
+    total = context.user_data["quiz_total"]
+    set_mode(context, MODE_QUIZ_ANSWER)
+    await query.message.reply_text(f"📊 Рахунок: {score}/{total}\n\n{question}")
 
 
-async def cancel_to_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Перехід до /gpt під час іншого діалогу (id=%s)",
-                update.effective_user.id)
-    return await gpt_start(update, context)
+async def quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_answer = update.message.text
+    result = await chat_gpt.add_message(user_answer)
+
+    context.user_data["quiz_total"] += 1
+    if "Правильно!" in result:
+        context.user_data["quiz_score"] += 1
+        logger.info("Квіз: правильна відповідь від id=%s. Рахунок %s/%s",
+                    update.effective_user.id,
+                    context.user_data["quiz_score"],
+                    context.user_data["quiz_total"])
+    else:
+        logger.info("Квіз: неправильна відповідь від id=%s. Рахунок %s/%s",
+                    update.effective_user.id,
+                    context.user_data["quiz_score"],
+                    context.user_data["quiz_total"])
+
+    score = context.user_data["quiz_score"]
+    total = context.user_data["quiz_total"]
+    set_mode(context, None)
+    keyboard = [
+        [
+            InlineKeyboardButton("Ще питання", callback_data="quiz_next"),
+            InlineKeyboardButton("Змінити тему", callback_data="quiz_change"),
+        ],
+        [InlineKeyboardButton("Закінчити", callback_data="start")],
+    ]
+    await update.message.reply_text(
+        f"{result}\n\n📊 Рахунок: {score}/{total}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+# ---------------------------------------------------------------------------
+# /voice
+# ---------------------------------------------------------------------------
 
 
-async def cancel_to_talk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Перехід до /talk під час іншого діалогу (id=%s)",
-                update.effective_user.id)
-    return await talk_start(update, context)
+async def voice_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    logger.info("Команда /voice — користувач: %s (id=%s)",
+                user.username or user.first_name, user.id)
+    chat_gpt.set_prompt(load_prompt("gpt"))
+    set_mode(context, MODE_VOICE)
+    await send_image(update, context, "voice")
+    await send_text(update, context, load_message("voice"))
 
 
-async def cancel_to_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Перехід до /quiz під час іншого діалогу (id=%s)",
-                update.effective_user.id)
-    return await quiz_start(update, context)
+async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Голосове повідомлення від id=%s", update.effective_user.id)
+    voice = update.message.voice
+    voice_file = await context.bot.get_file(voice.file_id)
+
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        tmp_path = tmp.name
+    await voice_file.download_to_drive(tmp_path)
+
+    with open(tmp_path, "rb") as audio:
+        transcript = await chat_gpt.client.audio.transcriptions.create(
+            model="whisper-1", file=audio
+        )
+    os.unlink(tmp_path)
+
+    user_text = transcript.text
+    logger.info("Whisper транскрипція: '%s' (id=%s)",
+                user_text[:80], update.effective_user.id)
+    await update.message.reply_text(f"🗣 Ти сказав: _{user_text}_", parse_mode="Markdown")
+
+    answer = await chat_gpt.add_message(user_text)
+
+    tts_response = await chat_gpt.client.audio.speech.create(
+        model="tts-1", voice="nova", input=answer
+    )
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_audio:
+        tmp_audio_path = tmp_audio.name
+        tmp_audio.write(tts_response.content)
+
+    with open(tmp_audio_path, "rb") as audio_out:
+        await update.message.reply_voice(voice=audio_out)
+    os.unlink(tmp_audio_path)
 
 
-COMMON_FALLBACKS = [
-    CommandHandler("start", start),
-    CommandHandler("gpt", cancel_to_gpt),
-    CommandHandler("talk", cancel_to_talk),
-    CommandHandler("quiz", cancel_to_quiz),
-]
+# ---------------------------------------------------------------------------
+# /recommend
+# ---------------------------------------------------------------------------
+
+RECOMMEND_CATEGORIES = {
+    "rec_movies": "🎬 Фільми",
+    "rec_books": "📚 Книги",
+    "rec_music": "🎵 Музика",
+}
 
 
-# async def log_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     print(f"=== Апдейт отримано: {type(update)} ===")
-#     print(update)
+async def recommend_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    logger.info("Команда /recommend — користувач: %s (id=%s)",
+                user.username or user.first_name, user.id)
+    context.user_data["rec_dislikes"] = []
+    set_mode(context, None)
+    await send_image(update, context, "recommend")
+    await send_text_buttons(
+        update, context, load_message("recommend"), RECOMMEND_CATEGORIES
+    )
+
+
+async def recommend_choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "rec_dislike":
+        last = context.user_data.get("rec_last", "")
+        if last:
+            context.user_data["rec_dislikes"].append(last)
+        await _send_recommendation(query.message, context)
+        return
+
+    if query.data in RECOMMEND_CATEGORIES:
+        context.user_data["rec_category"] = query.data
+        cat_name = RECOMMEND_CATEGORIES[query.data]
+        set_mode(context, MODE_RECOMMEND)
+        await query.message.reply_text(
+            f"Обрано: {cat_name}\nНапиши жанр або тематику:"
+        )
+
+
+async def recommend_genre(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["rec_genre"] = update.message.text
+    await update.message.reply_text("⏳ Шукаю рекомендацію...")
+    set_mode(context, None)
+    await _send_recommendation(update.message, context)
+
+
+async def _send_recommendation(message, context: ContextTypes.DEFAULT_TYPE):
+    cat_key = context.user_data.get("rec_category", "rec_movies")
+    cat_name = RECOMMEND_CATEGORIES.get(cat_key, "фільми")
+    genre = context.user_data.get("rec_genre", "будь-який")
+    dislikes = context.user_data.get("rec_dislikes", [])
+    prompt = load_prompt("recommend")
+    exclude = f" Виключи: {', '.join(dislikes)}." if dislikes else ""
+    question = (
+        f"Порадь одну {cat_name} у жанрі '{genre}'.{exclude} "
+        "Дай назву та короткий опис (2-3 речення)."
+    )
+    answer = await chat_gpt.send_question(prompt, question)
+    context.user_data["rec_last"] = answer
+    keyboard = [
+        [
+            InlineKeyboardButton("👎 Не подобається",
+                                 callback_data="rec_dislike"),
+            InlineKeyboardButton("Закінчити", callback_data="start"),
+        ]
+    ]
+    await message.reply_text(answer, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+# ---------------------------------------------------------------------------
+# Роутери — єдині точки входу для повідомлень і кнопок
+# ---------------------------------------------------------------------------
+
+async def router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Єдина точка входу для всіх текстових повідомлень.
+    Дивиться на context.user_data["mode"] і вирішує куди відправити.
+    """
+    mode = get_mode(context)
+    logger.info("router: mode=%s, user id=%s", mode, update.effective_user.id)
+
+    if mode == MODE_GPT:
+        await gpt_dialog(update, context)
+    elif mode == MODE_TALK:
+        await talk_dialog(update, context)
+    elif mode == MODE_QUIZ_ANSWER:
+        await quiz_answer(update, context)
+    elif mode == MODE_RECOMMEND:
+        await recommend_genre(update, context)
+    # якщо mode == None — нічого не робимо, чекаємо команди
+
+
+async def voice_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Роутер для голосових повідомлень."""
+    if get_mode(context) == MODE_VOICE:
+        await voice_message(update, context)
+
+
+async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Єдина точка входу для всіх callback-кнопок."""
+    query = update.callback_query
+    data = query.data
+
+    if data == "start":
+        await query.answer()
+        await start(update, context)
+    elif data == "random":
+        await button_handler_random(update, context)
+    elif data == "talk_end":
+        await query.answer()
+        set_mode(context, None)
+        await start(update, context)
+    elif data in PERSONALITIES:
+        await talk_choose(update, context)
+    elif data in QUIZ_TOPICS or data in ("quiz_next", "quiz_change"):
+        await quiz_choose_topic(update, context)
+    elif data in RECOMMEND_CATEGORIES or data == "rec_dislike":
+        await recommend_choose(update, context)
+    else:
+        await query.answer()
+
+
+# ---------------------------------------------------------------------------
+# Ініціалізація бота
+# ---------------------------------------------------------------------------
 
 chat_gpt = ChatGptService(config.ChatGPT_TOKEN)
 app = ApplicationBuilder().token(config.BOT_TOKEN).build()
 
-# app.add_handler(TypeHandler(Update, log_all), group=-1)
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("random", random_fact))
+app.add_handler(CommandHandler("gpt", gpt_start))
+app.add_handler(CommandHandler("talk", talk_start))
+app.add_handler(CommandHandler("quiz", quiz_start))
+app.add_handler(CommandHandler("voice", voice_start))
+app.add_handler(CommandHandler("recommend", recommend_start))
 
-# Зареєструвати обробник команди можна так:
-app.add_handler(CommandHandler('random', random))
-app.add_handler(CallbackQueryHandler(
-    button_handler_random, pattern='^(random|start)$'))
+app.add_handler(CallbackQueryHandler(callback_router))
+app.add_handler(MessageHandler(filters.VOICE, voice_router))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, router))
 
-gpt_handler = ConversationHandler(
-    entry_points=[CommandHandler("gpt", gpt_start)],
-    states={GPT_DIALOG: [MessageHandler(
-        filters.TEXT & ~filters.COMMAND, gpt_dialog)]},
-    fallbacks=COMMON_FALLBACKS,
-    per_message=False,
-)
-app.add_handler(gpt_handler)
-
-talk_handler = ConversationHandler(
-    entry_points=[CommandHandler("talk", talk_start)],
-    states={
-        TALK_CHOOSE: [CallbackQueryHandler(talk_choose)],
-        TALK_DIALOG: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, talk_dialog),
-            CallbackQueryHandler(talk_end, pattern="^start$"),
-        ],
-    },
-    fallbacks=COMMON_FALLBACKS,
-    per_message=False,
-)
-app.add_handler(talk_handler)
-
-
-app.add_handler(CommandHandler('start', start))
-
-# Зареєструвати обробник колбеку можна так:
-# app.add_handler(CallbackQueryHandler(app_button, pattern='^app_.*'))
-# app.add_handler(CallbackQueryHandler(default_callback_handler))
-
-print("Бот запущено...")
+logger.info("Бот запущено...")
 app.run_polling()
