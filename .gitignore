@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+#data files
+*.pkl
+
 # C extensions
 *.so
 
@@ -33,6 +36,7 @@ MANIFEST
 *.spec
 
 # Installer logs
+*.log
 pip-log.txt
 pip-delete-this-directory.txt
 
@@ -60,7 +64,7 @@ cover/
 *_old.*
 
 # Django stuff:
-*.log
+
 local_settings.py
 db.sqlite3
 db.sqlite3-journal

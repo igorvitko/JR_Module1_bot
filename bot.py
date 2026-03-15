@@ -14,6 +14,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    PicklePersistence,
     filters,
 )
 
@@ -453,7 +454,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 chat_gpt = ChatGptService(config.ChatGPT_TOKEN)
-app = ApplicationBuilder().token(config.BOT_TOKEN).build()
+app = (
+    ApplicationBuilder()
+    .token(config.BOT_TOKEN)
+    .concurrent_updates(True)
+    .persistence(PicklePersistence(filepath="user_data.pkl"))
+    .build())
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("random", random_fact))
