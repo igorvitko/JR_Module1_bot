@@ -142,9 +142,10 @@ async def gpt_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_gpt = get_ai_service(context)
     logger.info("GPT-повідомлення від id=%s: %s",
                 update.effective_user.id, user_text[:80])
-    await update.message.reply_text("⏳ Думаю...")
+    message = await update.message.reply_text("⏳ Думаю...")
     answer = await chat_gpt.add_message(user_text)
-    await send_text(update, context, answer)
+    keyboard = [[InlineKeyboardButton("Закінчити", callback_data="gpt_end")]]
+    await message.edit_text(answer, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +455,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start(update, context)
     elif data == "random":
         await button_handler_random(update, context)
+
+    elif data == "gpt_end":
+        await query.answer()
+        set_mode(context, None, logger)
+        await start(update, context)
+
     elif data == "talk_end":
         await query.answer()
         set_mode(context, None, logger)
