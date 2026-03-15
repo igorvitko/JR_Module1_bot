@@ -20,6 +20,7 @@ from telegram.ext import (
 
 from gpt import ChatGptService
 from util import (
+    get_ai_service,
     load_message,
     send_text,
     send_text_buttons,
@@ -96,13 +97,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "recommend": "Рекомендації 🎬📚",
     })
 
+    context.user_data["ai_service"] = ChatGptService()
 
 # ---------------------------------------------------------------------------
 # /random
 # ---------------------------------------------------------------------------
 
+
 async def random_fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_mode(context, None, logger)
+    chat_gpt = get_ai_service(context)
     await send_image(update, context, "random")
     message = await update.message.reply_text("⏳")
     await send_random_fact(message, chat_gpt)
@@ -110,6 +114,7 @@ async def random_fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler_random(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    chat_gpt = get_ai_service(context)
     await query.answer()
     if query.data == "random":
         await send_random_fact(query.message, chat_gpt)
@@ -123,6 +128,7 @@ async def button_handler_random(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def gpt_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    chat_gpt = get_ai_service(context)
     logger.info("Команда /gpt — користувач: %s (id=%s)",
                 user.username or user.first_name, user.id)
     chat_gpt.set_prompt(load_prompt("gpt"))
@@ -133,6 +139,7 @@ async def gpt_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def gpt_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+    chat_gpt = get_ai_service(context)
     logger.info("GPT-повідомлення від id=%s: %s",
                 update.effective_user.id, user_text[:80])
     await update.message.reply_text("⏳ Думаю...")
@@ -164,6 +171,7 @@ async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def talk_choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    chat_gpt = get_ai_service(context)
     await query.answer()
 
     if query.data not in PERSONALITIES:
@@ -182,6 +190,7 @@ async def talk_choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def talk_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+    chat_gpt = get_ai_service(context)
     await update.message.reply_text("⏳")
     answer = await chat_gpt.add_message(user_text)
     keyboard = [[InlineKeyboardButton("Закінчити", callback_data="talk_end")]]
@@ -230,6 +239,8 @@ async def quiz_choose_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         return
 
+    chat_gpt = get_ai_service(context)
+
     prompt = load_prompt("quiz")
     if prompt_keyword == "quiz_more":
         question = await chat_gpt.add_message("quiz_more")
@@ -243,6 +254,8 @@ async def quiz_choose_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_answer = update.message.text
+    chat_gpt = get_ai_service(context)
+
     result = await chat_gpt.add_message(user_answer)
 
     context.user_data["quiz_total"] += 1
@@ -282,6 +295,8 @@ async def voice_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     logger.info("Команда /voice — користувач: %s (id=%s)",
                 user.username or user.first_name, user.id)
+    chat_gpt = get_ai_service(context)
+
     chat_gpt.set_prompt(load_prompt("gpt"))
     set_mode(context, MODE_VOICE, logger)
     await send_image(update, context, "voice")
@@ -292,6 +307,7 @@ async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Голосове повідомлення від id=%s", update.effective_user.id)
     voice = update.message.voice
     voice_file = await context.bot.get_file(voice.file_id)
+    chat_gpt = get_ai_service(context)
 
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         tmp_path = tmp.name
@@ -379,6 +395,9 @@ async def _send_recommendation(message, context: ContextTypes.DEFAULT_TYPE):
     dislikes = context.user_data.get("rec_dislikes", [])
     prompt = load_prompt("recommend")
     exclude = f" Виключи: {', '.join(dislikes)}." if dislikes else ""
+
+    chat_gpt = get_ai_service(context)
+
     question = (
         f"""Порадь три {cat_name} у жанрі '{genre}'.{exclude} 
         Виведи список з назв та коротких описів (2-3 речення).
@@ -453,7 +472,6 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Ініціалізація бота
 # ---------------------------------------------------------------------------
 
-chat_gpt = ChatGptService(config.ChatGPT_TOKEN)
 app = (
     ApplicationBuilder()
     .token(config.BOT_TOKEN)

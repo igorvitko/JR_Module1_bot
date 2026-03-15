@@ -4,6 +4,8 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+from gpt import ChatGptService
+
 
 # конвертує об'єкт user в рядок
 def dialog_user_info_to_str(user_data) -> str:
@@ -121,6 +123,16 @@ def set_mode(context: ContextTypes.DEFAULT_TYPE, mode, logger) -> None:
 def get_mode(context: ContextTypes.DEFAULT_TYPE):
     """Отримати поточний режим користувача."""
     return context.user_data.get("mode")
+
+
+def get_ai_service(context: ContextTypes.DEFAULT_TYPE):
+    ai_service = context.user_data.get("ai_service")
+
+    if not ai_service:
+        new_service = ChatGptService()
+        context.user_data["ai_service"] = new_service
+        return new_service
+    return ai_service
 
 
 class Dialog:
