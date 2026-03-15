@@ -26,6 +26,8 @@ from util import (
     show_main_menu,
     load_prompt,
     send_random_fact,
+    get_mode,
+    set_mode,
 )
 from setting import config
 
@@ -72,17 +74,6 @@ MODE_VOICE = "voice"
 MODE_RECOMMEND = "recommend"
 
 
-def set_mode(context: ContextTypes.DEFAULT_TYPE, mode) -> None:
-    """Встановити поточний режим користувача."""
-    context.user_data["mode"] = mode
-    logger.info("Режим змінено на: %s", mode)
-
-
-def get_mode(context: ContextTypes.DEFAULT_TYPE):
-    """Отримати поточний режим користувача."""
-    return context.user_data.get("mode")
-
-
 # ---------------------------------------------------------------------------
 # /start
 # ---------------------------------------------------------------------------
@@ -110,7 +101,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def random_fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    set_mode(context, None)
+    set_mode(context, None, logger)
     await send_image(update, context, "random")
     message = await update.message.reply_text("⏳")
     await send_random_fact(message, chat_gpt)
@@ -134,7 +125,7 @@ async def gpt_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Команда /gpt — користувач: %s (id=%s)",
                 user.username or user.first_name, user.id)
     chat_gpt.set_prompt(load_prompt("gpt"))
-    set_mode(context, MODE_GPT)
+    set_mode(context, MODE_GPT, logger)
     await send_image(update, context, "gpt")
     await send_text(update, context, load_message("gpt"))
 
@@ -165,7 +156,7 @@ async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     logger.info("Команда /talk — користувач: %s (id=%s)",
                 user.username or user.first_name, user.id)
-    set_mode(context, None)
+    set_mode(context, None, logger)
     await send_image(update, context, "talk")
     await send_text_buttons(update, context, load_message("talk"), PERSONALITIES)
 
@@ -180,7 +171,7 @@ async def talk_choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = PERSONALITIES[query.data]
     logger.info("Обрана особистість: %s — id=%s", name, query.from_user.id)
     chat_gpt.set_prompt(load_prompt(query.data))
-    set_mode(context, MODE_TALK)
+    set_mode(context, MODE_TALK, logger)
 
     await query.message.reply_text(
         f"Вітаю! Тепер ти розмовляєш з *{name}*. Напиши щось!",
@@ -215,7 +206,7 @@ async def quiz_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user.username or user.first_name, user.id)
     context.user_data["quiz_score"] = 0
     context.user_data["quiz_total"] = 0
-    set_mode(context, None)
+    set_mode(context, None, logger)
     await send_image(update, context, "quiz")
     await send_text_buttons(update, context, load_message("quiz"), QUIZ_TOPICS)
 
@@ -228,7 +219,7 @@ async def quiz_choose_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         topic = context.user_data.get("quiz_topic")
         prompt_keyword = "quiz_more"
     elif query.data == "quiz_change":
-        set_mode(context, None)
+        set_mode(context, None, logger)
         await send_text_buttons(update, context, "Обери тему:", QUIZ_TOPICS)
         return
     elif query.data in QUIZ_TOPICS:
@@ -245,7 +236,7 @@ async def quiz_choose_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         question = await chat_gpt.send_question(prompt, prompt_keyword)
     score = context.user_data["quiz_score"]
     total = context.user_data["quiz_total"]
-    set_mode(context, MODE_QUIZ_ANSWER)
+    set_mode(context, MODE_QUIZ_ANSWER, logger)
     await query.message.reply_text(f"📊 Рахунок: {score}/{total}\n\n{question}")
 
 
@@ -268,7 +259,7 @@ async def quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     score = context.user_data["quiz_score"]
     total = context.user_data["quiz_total"]
-    set_mode(context, None)
+    set_mode(context, None, logger)
     keyboard = [
         [
             InlineKeyboardButton("Ще питання", callback_data="quiz_next"),
@@ -291,7 +282,7 @@ async def voice_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Команда /voice — користувач: %s (id=%s)",
                 user.username or user.first_name, user.id)
     chat_gpt.set_prompt(load_prompt("gpt"))
-    set_mode(context, MODE_VOICE)
+    set_mode(context, MODE_VOICE, logger)
     await send_image(update, context, "voice")
     await send_text(update, context, load_message("voice"))
 
@@ -346,7 +337,7 @@ async def recommend_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Команда /recommend — користувач: %s (id=%s)",
                 user.username or user.first_name, user.id)
     context.user_data["rec_dislikes"] = []
-    set_mode(context, None)
+    set_mode(context, None, logger)
     await send_image(update, context, "recommend")
     await send_text_buttons(
         update, context, load_message("recommend"), RECOMMEND_CATEGORIES
@@ -367,7 +358,7 @@ async def recommend_choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data in RECOMMEND_CATEGORIES:
         context.user_data["rec_category"] = query.data
         cat_name = RECOMMEND_CATEGORIES[query.data]
-        set_mode(context, MODE_RECOMMEND)
+        set_mode(context, MODE_RECOMMEND, logger)
         await query.message.reply_text(
             f"Обрано: {cat_name}\nНапиши жанр або тематику:"
         )
@@ -376,7 +367,7 @@ async def recommend_choose(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def recommend_genre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["rec_genre"] = update.message.text
     await update.message.reply_text("⏳ Шукаю рекомендацію...")
-    set_mode(context, None)
+    set_mode(context, None, logger)
     await _send_recommendation(update.message, context)
 
 
@@ -388,8 +379,9 @@ async def _send_recommendation(message, context: ContextTypes.DEFAULT_TYPE):
     prompt = load_prompt("recommend")
     exclude = f" Виключи: {', '.join(dislikes)}." if dislikes else ""
     question = (
-        f"Порадь одну {cat_name} у жанрі '{genre}'.{exclude} "
-        "Дай назву та короткий опис (2-3 речення)."
+        f"""Порадь три {cat_name} у жанрі '{genre}'.{exclude} 
+        Виведи список з назв та коротких описів (2-3 речення).
+        """
     )
     answer = await chat_gpt.send_question(prompt, question)
     context.user_data["rec_last"] = answer
@@ -444,7 +436,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await button_handler_random(update, context)
     elif data == "talk_end":
         await query.answer()
-        set_mode(context, None)
+        set_mode(context, None, logger)
         await start(update, context)
     elif data in PERSONALITIES:
         await talk_choose(update, context)

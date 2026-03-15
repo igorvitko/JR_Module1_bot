@@ -112,5 +112,16 @@ async def send_random_fact(message, chat_gpt):
     await message.edit_text(response, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
+def set_mode(context: ContextTypes.DEFAULT_TYPE, mode, logger) -> None:
+    """Встановити поточний режим користувача."""
+    context.user_data["mode"] = mode
+    logger.info("Режим змінено на: %s", mode)
+
+
+def get_mode(context: ContextTypes.DEFAULT_TYPE):
+    """Отримати поточний режим користувача."""
+    return context.user_data.get("mode")
+
+
 class Dialog:
     pass
