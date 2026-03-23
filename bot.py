@@ -320,7 +320,7 @@ async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await voice_file.download_to_drive(tmp_path)
 
     with open(tmp_path, "rb") as audio:
-        transcript = await chat_gpt.client.audio.transcriptions.create(
+        transcript = await config.OPENAI_CLIENT.audio.transcriptions.create(
             model="whisper-1", file=audio
         )
     os.unlink(tmp_path)
@@ -332,7 +332,7 @@ async def voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     answer = await chat_gpt.add_message(user_text)
 
-    tts_response = await chat_gpt.client.audio.speech.create(
+    tts_response = await config.OPENAI_CLIENT.audio.speech.create(
         model="tts-1", voice="nova", input=answer
     )
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_audio:
